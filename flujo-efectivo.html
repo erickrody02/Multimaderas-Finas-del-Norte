@@ -116,10 +116,37 @@ tbody tr:hover{background:var(--surface-2);}
 
 #loading-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:200;font-family:var(--font-display);color:var(--ink-soft);font-size:14px;padding:20px;text-align:center;}
 
+/* Reporte imprimible */
+#print-area{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:36px;max-width:800px;margin:0 auto;}
+.print-header{text-align:center;margin-bottom:26px;}
+.print-header h1{font-size:20px;margin-bottom:2px;}
+.print-header h2{font-size:14.5px;font-weight:500;color:var(--ink-soft);margin-bottom:10px;}
+.print-header p{font-size:12.5px;margin:2px 0;color:var(--ink-soft);}
+.print-header .print-meta{font-size:11px;}
+.print-summary-table{width:100%;border-collapse:collapse;margin-bottom:28px;font-size:13.5px;}
+.print-summary-table td{padding:8px 4px;border-bottom:1px solid var(--line-soft);}
+.print-summary-table td:last-child{text-align:right;font-family:var(--font-mono);}
+.print-summary-table .print-total-row td{font-weight:700;border-top:2px solid var(--ink);border-bottom:none;padding-top:10px;}
+.print-section-title{font-size:14px;margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--ink);}
+.print-table{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:13px;}
+.print-table th{text-align:left;padding:7px 6px;border-bottom:1px solid var(--ink);font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;}
+.print-table th:last-child, .print-table td:last-child{text-align:right;}
+.print-table td{padding:5px 6px;}
+.print-table .print-cat-row td{font-weight:700;border-top:1px solid var(--line);padding-top:9px;}
+.print-table .print-desc-row td:first-child{padding-left:20px;color:var(--ink-soft);font-size:12.5px;font-weight:400;}
+.print-table .print-desc-row td:last-child{font-family:var(--font-mono);color:var(--ink-soft);font-size:12.5px;}
+.print-table .print-total-row td{font-weight:700;border-top:2px solid var(--ink);padding-top:9px;}
+
 @media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important;}}
 @media (max-width:760px){
   .topbar{padding:16px 18px;} .tabs{padding:0 18px;top:97px;} .content{padding:18px 16px 48px;}
   .form-cols{grid-template-columns:1fr;}
+}
+@media print{
+  body *{visibility:hidden;}
+  #print-area, #print-area *{visibility:visible;}
+  #print-area{position:absolute;left:0;top:0;width:100%;max-width:100%;border:none;padding:0;margin:0;}
+  @page{margin:16mm;}
 }
 </style>
 </head>
@@ -141,6 +168,7 @@ tbody tr:hover{background:var(--surface-2);}
 <nav class="tabs">
   <button class="tab-item active" data-tab="registros" onclick="showTab('registros')">Registros</button>
   <button class="tab-item" data-tab="reportes" onclick="showTab('reportes')">Reportes</button>
+  <button class="tab-item" data-tab="imprimir" onclick="showTab('imprimir')">Reporte imprimible</button>
 </nav>
 
 <div class="content">
@@ -182,6 +210,16 @@ tbody tr:hover{background:var(--surface-2);}
       <div class="panel-head"><h3>Egresos por categoría y descripción</h3></div>
       <div id="rep-egresos-jerarquia" style="padding:20px;"></div>
     </div>
+  </section>
+
+  <section id="tab-imprimir" class="tab-view">
+    <div class="section-head no-print">
+      <span class="filter-label">Desde <input type="date" id="pr-desde" onchange="renderReporteImprimible()"></span>
+      <span class="filter-label">Hasta <input type="date" id="pr-hasta" onchange="renderReporteImprimible()"></span>
+      <button class="btn btn-sm" onclick="clearPrintFilters()">Ver todo</button>
+      <button class="btn btn-accent" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+    </div>
+    <div id="print-area"></div>
   </section>
 
 </div>
@@ -338,6 +376,7 @@ function showTab(tab){
   document.querySelectorAll('.tab-item').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('.tab-view').forEach(v=>v.classList.toggle('active', v.id==='tab-'+tab));
   if(tab==='reportes') renderReportesTab();
+  if(tab==='imprimir') renderReporteImprimible();
 }
 
 /* ===================== Filtros y render — pestaña Registros ===================== */
@@ -475,6 +514,77 @@ function exportarReporteCSV(){
     });
   });
   downloadCSV('reporte_categoria_descripcion.csv', header, data);
+}
+
+/* ===================== Pestaña Reporte imprimible ===================== */
+function clearPrintFilters(){
+  document.getElementById('pr-desde').value='';
+  document.getElementById('pr-hasta').value='';
+  renderReporteImprimible();
+}
+function renderReporteImprimible(){
+  const desde = document.getElementById('pr-desde').value;
+  const hasta = document.getElementById('pr-hasta').value;
+  const rows = flujo.filter(r=> (!desde||r.fecha>=desde) && (!hasta||r.fecha<=hasta));
+  const ingresos = rows.filter(r=>r.tipo==='ingreso');
+  const egresos = rows.filter(r=>r.tipo==='egreso');
+  const totalIngresos = ingresos.reduce((s,r)=>s+r.monto,0);
+  const totalEgresos = egresos.reduce((s,r)=>s+r.monto,0);
+
+  const mesDesde = desde ? desde.slice(0,7) : null;
+  const tieneSaldo = mesDesde && saldosIniciales[mesDesde]!=null;
+  const saldoInicial = tieneSaldo ? saldosIniciales[mesDesde] : 0;
+  const saldoFinal = saldoInicial + totalIngresos - totalEgresos;
+
+  const periodoTexto = (desde||hasta) ? `${desde?formatDate(desde):'Inicio del historial'} — ${hasta?formatDate(hasta):'hoy'}` : 'Todo el historial';
+  const ahora = new Date();
+
+  document.getElementById('print-area').innerHTML = `
+    <div class="print-header">
+      <h1>Aserradero Control</h1>
+      <h2>Reporte de Flujo de Efectivo</h2>
+      <p>Periodo: ${periodoTexto}</p>
+      <p class="print-meta">Generado el ${ahora.toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'})} a las ${ahora.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</p>
+    </div>
+
+    <table class="print-summary-table">
+      <tr><td>Saldo inicial${mesDesde?' ('+formatMes(mesDesde)+')':''}</td><td>${tieneSaldo?formatMoney(saldoInicial):'—'}</td></tr>
+      <tr><td>Total ingresos</td><td>${formatMoney(totalIngresos)}</td></tr>
+      <tr><td>Total egresos</td><td>${formatMoney(totalEgresos)}</td></tr>
+      <tr class="print-total-row"><td>Saldo final</td><td>${formatMoney(saldoFinal)}</td></tr>
+    </table>
+
+    <h3 class="print-section-title">Ingresos por categoría</h3>
+    ${buildPrintTable(ingresos, totalIngresos)}
+
+    <h3 class="print-section-title">Egresos por categoría</h3>
+    ${buildPrintTable(egresos, totalEgresos)}
+  `;
+}
+function buildPrintTable(rows, grandTotal){
+  if(rows.length===0) return `<p class="empty-hint">Sin registros en este periodo.</p>`;
+  const porCategoria = {};
+  rows.forEach(r=>{
+    const cat = r.categoria || 'Sin categoría';
+    const desc = r.descripcion || 'Sin descripción';
+    if(!porCategoria[cat]) porCategoria[cat] = {};
+    porCategoria[cat][desc] = (porCategoria[cat][desc]||0) + r.monto;
+  });
+  const categorias = Object.entries(porCategoria).map(([cat,descs])=>{
+    const catTotal = Object.values(descs).reduce((a,b)=>a+b,0);
+    return {cat, catTotal, descs};
+  }).sort((a,b)=>b.catTotal-a.catTotal);
+
+  let bodyRows = '';
+  categorias.forEach(({cat,catTotal,descs})=>{
+    bodyRows += `<tr class="print-cat-row"><td>${escapeHtml(cat)}</td><td>${formatMoney(catTotal)}</td></tr>`;
+    Object.entries(descs).sort((a,b)=>b[1]-a[1]).forEach(([desc,total])=>{
+      bodyRows += `<tr class="print-desc-row"><td>${escapeHtml(desc)}</td><td>${formatMoney(total)}</td></tr>`;
+    });
+  });
+  bodyRows += `<tr class="print-total-row"><td>Total</td><td>${formatMoney(grandTotal)}</td></tr>`;
+
+  return `<table class="print-table"><thead><tr><th>Categoría / Descripción</th><th>Monto</th></tr></thead><tbody>${bodyRows}</tbody></table>`;
 }
 
 /* ===================== Saldo inicial por mes ===================== */
@@ -802,6 +912,8 @@ function setDefaultDates(){
   document.getElementById('f-hasta').value = todayISO();
   document.getElementById('rep-desde').value = firstISO;
   document.getElementById('rep-hasta').value = todayISO();
+  document.getElementById('pr-desde').value = firstISO;
+  document.getElementById('pr-hasta').value = todayISO();
 }
 async function init(){
   if(!SUPABASE_CONFIGURED){
